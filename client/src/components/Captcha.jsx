@@ -29,7 +29,7 @@ export default function Captcha({ onVerify, resetTrigger = 0 }) {
   const generateCaptcha = async () => {
     setLoading(true)
     try {
-      const response = await fetch("http://localhost:5001/api/auth/captcha")
+      const response = await fetch("https://student-activity-backend.onrender.com/api/auth/captcha")
       if (response.ok) {
         const data = await response.json()
         setCaptchaText(data.captchaText)

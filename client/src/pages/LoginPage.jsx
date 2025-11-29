@@ -39,7 +39,7 @@ export default function LoginPage() {
         ? { email, password, captchaId, captchaAnswer } 
         : { name, email, password, role, captchaId, captchaAnswer }
 
-      const response = await fetch(`http://localhost:5001${endpoint}`, {
+      const response = await fetch(`https://student-activity-backend.onrender.com${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
