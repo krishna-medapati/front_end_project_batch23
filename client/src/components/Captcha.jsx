@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 
 export default function Captcha({ onVerify, resetTrigger = 0 }) {
   const [captchaText, setCaptchaText] = useState("")
@@ -19,14 +19,7 @@ export default function Captcha({ onVerify, resetTrigger = 0 }) {
     }))
   }, [captchaText])
 
-  useEffect(() => {
-    generateCaptcha()
-    setIsVerified(false)
-    setAnswer("")
-    setError("")
-  }, [resetTrigger])
-
-  const generateCaptcha = async () => {
+  const generateCaptcha = useCallback(async () => {
     setLoading(true)
     try {
       const response = await fetch("http://localhost:5001/api/auth/captcha")
@@ -48,7 +41,14 @@ export default function Captcha({ onVerify, resetTrigger = 0 }) {
       setError("Failed to load CAPTCHA. Please refresh.")
     }
     setLoading(false)
-  }
+  }, [onVerify])
+
+  useEffect(() => {
+    generateCaptcha()
+    setIsVerified(false)
+    setAnswer("")
+    setError("")
+  }, [resetTrigger, generateCaptcha])
 
   const handleAnswerChange = (e) => {
     const value = e.target.value.toUpperCase().trim()
