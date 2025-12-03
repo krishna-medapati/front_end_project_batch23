@@ -5,6 +5,7 @@ const Event = require("../models/Event")
 const Activity = require("../models/Activity")
 const User = require("../models/User")
 const { generateQRCode } = require("../utils/qrCodeGenerator")
+const { sendAttendanceEmail } = require("../utils/emailService")
 
 const router = express.Router()
 
@@ -239,6 +240,11 @@ router.post("/:id/attendance", auth, async (req, res) => {
         pointsEarned: pointsToAward,
       })
       await user.save()
+      
+      // Send email notification if enabled
+      if (user.emailNotifications) {
+        await sendAttendanceEmail(user.email, user.name, event.title, pointsToAward)
+      }
     }
 
     res.json({ message: `Attendance marked as ${status}`, event })

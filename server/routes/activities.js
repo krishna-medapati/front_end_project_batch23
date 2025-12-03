@@ -4,6 +4,7 @@ const { auth, adminAuth } = require("../middleware/auth")
 const Activity = require("../models/Activity")
 const User = require("../models/User")
 const Event = require("../models/Event")
+const { sendActivityRegistrationEmail } = require("../utils/emailService")
 
 const router = express.Router()
 
@@ -151,6 +152,11 @@ router.post("/:id/register", auth, async (req, res) => {
     const user = await User.findById(req.user.userId)
     user.enrolledActivities.push(req.params.id)
     await user.save()
+
+    // Send email notification if enabled
+    if (user.emailNotifications) {
+      await sendActivityRegistrationEmail(user.email, user.name, activity.name)
+    }
 
     res.json({ message: "Registered successfully", activity })
   } catch (error) {

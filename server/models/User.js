@@ -14,6 +14,22 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  phone: {
+    type: String,
+    default: "",
+  },
+  alternativeEmail: {
+    type: String,
+    default: "",
+  },
+  profilePicture: {
+    type: String,
+    default: null,
+  },
+  emailNotifications: {
+    type: Boolean,
+    default: true,
+  },
   role: {
     type: String,
     enum: ["student", "admin"],

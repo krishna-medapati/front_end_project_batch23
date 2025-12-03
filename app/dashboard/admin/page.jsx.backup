@@ -1,0 +1,1585 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { API_BASE_URL } from "@/app/config"
+
+// Translation objects (same as student dashboard)
+const translations = {
+  English: {
+    adminDashboard: "Admin Dashboard",
+    logout: "Logout",
+    settings: "Settings",
+    accountSettings: "Account Settings",
+    darkMode: "Dark Mode",
+    on: "ON",
+    off: "OFF",
+    emailNotifications: "Email Notifications",
+    language: "Language",
+    moreSettingsSoon: "More settings coming soon...",
+    backToDashboard: "Back to Dashboard",
+  },
+  తెలుగు: {
+    adminDashboard: "అడ్మిన్ డాష్‌బోర్డ్",
+    logout: "లాగ్అవుట్",
+    settings: "సెట్టింగ్‌లు",
+    accountSettings: "ఖాతా సెట్టింగ్‌లు",
+    darkMode: "డార్క్ మోడ్",
+    on: "ఆన్",
+    off: "ఆఫ్",
+    emailNotifications: "ఇమెయిల్ నోటిఫికేషన్‌లు",
+    language: "భాష",
+    moreSettingsSoon: "మరిన్ని సెట్టింగ్‌లు త్వరలో వస్తాయి...",
+    backToDashboard: "డాష్‌బోర్డ్‌కు తిరిగి వెళ్ళండి",
+  },
+  हिन्दी: {
+    adminDashboard: "प्रशासक डैशबोर्ड",
+    logout: "लॉगआउट",
+    settings: "सेटिंग्स",
+    accountSettings: "खाता सेटिंग्स",
+    darkMode: "डार्क मोड",
+    on: "चालू",
+    off: "बंद",
+    emailNotifications: "ईमेल सूचनाएं",
+    language: "भाषा",
+    moreSettingsSoon: "और सेटिंग्स जल्द ही आ रही हैं...",
+    backToDashboard: "डैशबोर्ड पर वापस जाएं",
+  },
+}
+
+export default function AdminDashboard() {
+  const router = useRouter()
+  const [user, setUser] = useState(null)
+  const [activeView, setActiveView] = useState("dashboard")
+  const [users, setUsers] = useState([])
+  const [activities, setActivities] = useState([])
+  const [events, setEvents] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showCreateActivity, setShowCreateActivity] = useState(false)
+  const [showCreateEvent, setShowCreateEvent] = useState(false)
+  const [selectedActivity, setSelectedActivity] = useState(null)
+  const [showStudents, setShowStudents] = useState(false)
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [showAttendees, setShowAttendees] = useState(false)
+  const [showNotificationForm, setShowNotificationForm] = useState(false)
+  const [notification, setNotification] = useState({
+    title: "",
+    message: "",
+    targetRole: "all",
+  })
+  const [selectedEventForAttendance, setSelectedEventForAttendance] = useState(null)
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false)
+  const [userFilter, setUserFilter] = useState("all") // all, student, admin
+  const [darkMode, setDarkMode] = useState(false)
+  const [language, setLanguage] = useState("English")
+  const [emailNotifications, setEmailNotifications] = useState(true)
+
+  // Helper function to get translations
+  const t = (key) => translations[language][key] || translations.English[key]
+  
+  const [newActivity, setNewActivity] = useState({
+    name: "",
+    description: "",
+    category: "academic",
+    schedule: "",
+    maxCapacity: 50,
+    pointsPerAttendance: 10,
+  })
+  const [newEvent, setNewEvent] = useState({
+    activityId: "",
+    title: "",
+    description: "",
+    date: "",
+    time: "",
+    location: "",
+    capacity: 50,
+    pointsPerEvent: 10,
+  })
+
+  useEffect(() => {
+    const token = localStorage.getItem("token")
+    const userData = localStorage.getItem("user")
+
+    if (!token || !userData) {
+      router.push("/")
+      return
+    }
+
+    const parsedUser = JSON.parse(userData)
+    if (parsedUser.role !== "admin") {
+      router.push("/dashboard/student")
+      return
+    }
+
+    // Load settings from localStorage
+    const savedTheme = localStorage.getItem("darkMode")
+    if (savedTheme === "true") {
+      setDarkMode(true)
+    }
+    
+    const savedLanguage = localStorage.getItem("language")
+    if (savedLanguage) {
+      setLanguage(savedLanguage)
+    }
+    
+    const savedEmailNotif = localStorage.getItem("emailNotifications")
+    if (savedEmailNotif !== null) {
+      setEmailNotifications(savedEmailNotif === "true")
+    }
+
+    // Fetch latest user data to get updated roleStatus
+    fetch(`${API_BASE_URL}/api/users/${parsedUser.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(latestUser => {
+        const updatedUser = { ...parsedUser, roleStatus: latestUser.roleStatus || parsedUser.roleStatus }
+        setUser(updatedUser)
+        localStorage.setItem("user", JSON.stringify(updatedUser))
+      })
+      .catch(() => {
+        setUser(parsedUser)
+      })
+
+    fetchData(token)
+  }, [router])
+
+  const fetchData = async (token) => {
+    try {
+      // Fetch activities
+      const activitiesRes = await fetch(`${API_BASE_URL}/api/activities`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const activitiesData = await activitiesRes.json()
+      setActivities(activitiesData)
+
+      // Fetch all events (we'll need to get them per activity)
+      if (activitiesData.length > 0) {
+        const allEvents = []
+        for (const activity of activitiesData) {
+          const eventsRes = await fetch(`${API_BASE_URL}/api/events/activity/${activity._id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          const eventsData = await eventsRes.json()
+          allEvents.push(...eventsData)
+        }
+        setEvents(allEvents)
+      }
+
+      // Fetch all users from the new endpoint
+      const usersRes = await fetch(`${API_BASE_URL}/api/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const usersData = await usersRes.json()
+      setUsers(usersData)
+
+      setLoading(false)
+    } catch (error) {
+      console.error("Error fetching data:", error)
+      setLoading(false)
+    }
+  }
+
+  const toggleDarkMode = () => {
+    const newMode = !darkMode
+    setDarkMode(newMode)
+    localStorage.setItem("darkMode", newMode.toString())
+  }
+
+  const changeLanguage = (lang) => {
+    setLanguage(lang)
+    localStorage.setItem("language", lang)
+  }
+
+  const toggleEmailNotifications = async () => {
+    const newValue = !emailNotifications
+    setEmailNotifications(newValue)
+    localStorage.setItem("emailNotifications", newValue.toString())
+    
+    // Update in backend
+    try {
+      const token = localStorage.getItem("token")
+      const userId = user.id || user._id
+      
+      const response = await fetch(`${API_BASE_URL}/api/users/${userId}/notifications`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ emailNotifications: newValue }),
+      })
+      
+      if (response.ok) {
+        console.log("Email notification preference updated")
+      }
+    } catch (error) {
+      console.error("Failed to update notification preference:", error)
+    }
+  }
+
+  const createActivity = async () => {
+    try {
+      const token = localStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/api/activities`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newActivity),
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        alert("Activity created successfully!")
+        setShowCreateActivity(false)
+        setNewActivity({
+          name: "",
+          description: "",
+          category: "academic",
+          schedule: "",
+          maxCapacity: 50,
+          pointsPerAttendance: 10,
+        })
+        fetchData(token)
+      } else {
+        alert(data.message || "Failed to create activity")
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Failed to create activity")
+    }
+  }
+
+  const createEvent = async () => {
+    try {
+      const token = localStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/api/events`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newEvent),
+      })
+
+      const data = await response.json()
+      if (response.ok) {
+        alert("Event created successfully!")
+        setShowCreateEvent(false)
+        setNewEvent({
+          activityId: "",
+          title: "",
+          description: "",
+          date: "",
+          time: "",
+          location: "",
+          capacity: 50,
+          pointsPerEvent: 10,
+        })
+        fetchData(token)
+      } else {
+        alert(data.message || "Failed to create event")
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Failed to create event")
+    }
+  }
+
+  const deleteEvent = async (eventId) => {
+    if (!confirm("Are you sure you want to delete this event?")) return
+
+    try {
+      const token = localStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/api/events/${eventId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.ok) {
+        alert("Event deleted successfully!")
+        fetchData(token)
+      } else {
+        alert("Failed to delete event")
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Failed to delete event")
+    }
+  }
+
+  const deleteActivity = async (activityId) => {
+    if (!confirm("Are you sure you want to delete this activity?")) return
+
+    try {
+      const token = localStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/api/activities/${activityId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.ok) {
+        alert("Activity deleted successfully!")
+        fetchData(token)
+      } else {
+        alert("Failed to delete activity")
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Failed to delete activity")
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("user")
+    router.push("/")
+  }
+
+  if (!user || loading) return <div style={styles.loading}>Loading...</div>
+
+  return (
+    <div style={styles.container}>
+      <nav style={styles.nav}>
+        <h1 style={styles.navTitle}>Admin Dashboard</h1>
+        <button onClick={handleLogout} style={styles.logoutBtn}>
+          Logout
+        </button>
+      </nav>
+
+      <div style={styles.content}>
+        <div style={styles.card}>
+          <h2 style={styles.welcomeTitle}>Welcome, {user.name}!</h2>
+          <p style={styles.userInfo}>Email: {user.email}</p>
+          <p style={styles.userInfo}>Role: {user.role}</p>
+          <p style={styles.statusBadge}>
+            Status: {user.roleStatus === "approved" ? "✅ Approved" : "⏳ Pending Approval"}
+          </p>
+        </div>
+
+        <div style={styles.tabs}>
+          <button
+            style={activeView === "dashboard" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("dashboard")}
+          >
+            🏠 Dashboard
+          </button>
+          <button
+            style={activeView === "activities" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("activities")}
+          >
+            📅 Activities
+          </button>
+          <button
+            style={activeView === "events" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("events")}
+          >
+            🎯 Events
+          </button>
+          <button
+            style={activeView === "users" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("users")}
+          >
+            👥 Users
+          </button>
+          <button
+            style={activeView === "notifications" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("notifications")}
+          >
+            📢 Notifications
+          </button>
+          <button
+            style={activeView === "attendance" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("attendance")}
+          >
+            ✅ Attendance
+          </button>
+          <button
+            style={activeView === "settings" ? styles.tabActive : styles.tab}
+            onClick={() => setActiveView("settings")}
+          >
+            ⚙️ Settings
+          </button>
+        </div>
+
+        {activeView === "dashboard" && (
+          <div>
+            <div style={styles.grid}>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>{activities.length}</h3>
+                <p style={styles.statLabel}>Total Activities</p>
+              </div>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>
+                  {activities.reduce((sum, a) => sum + (a.currentEnrollment || 0), 0)}
+                </h3>
+                <p style={styles.statLabel}>Total Enrollments</p>
+              </div>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>{events.length}</h3>
+                <p style={styles.statLabel}>Total Events Created</p>
+              </div>
+            </div>
+
+            <h3 style={{ ...styles.sectionTitle, marginTop: "40px", marginBottom: "20px" }}>Features</h3>
+            <div style={styles.grid}>
+              <div style={styles.featureCard} onClick={() => setActiveView("activities")}>
+                <h3 style={styles.featureTitle}>📅 Manage Activities</h3>
+                <p style={styles.featureDesc}>Create and manage student activities</p>
+              </div>
+
+              <div style={styles.featureCard} onClick={() => setActiveView("events")}>
+                <h3 style={styles.featureTitle}>🎯 Manage Events</h3>
+                <p style={styles.featureDesc}>Create and manage events with QR codes</p>
+              </div>
+
+              <div style={styles.featureCard} onClick={() => setActiveView("users")}>
+                <h3 style={styles.featureTitle}>👥 Manage Users</h3>
+                <p style={styles.featureDesc}>View and manage student and admin accounts</p>
+              </div>
+
+              <div style={styles.featureCard}>
+                <h3 style={styles.featureTitle}>📊 Analytics</h3>
+                <p style={styles.featureDesc}>View attendance and participation analytics</p>
+              </div>
+
+              <div style={styles.featureCard} onClick={() => setActiveView("notifications")}>
+                <h3 style={styles.featureTitle}>📢 Notifications</h3>
+                <p style={styles.featureDesc}>Send notifications to students</p>
+              </div>
+
+              <div style={styles.featureCard} onClick={() => setActiveView("attendance")}>
+                <h3 style={styles.featureTitle}>✅ Attendance</h3>
+                <p style={styles.featureDesc}>Manage attendance and QR code scanning</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeView === "activities" && (
+          <div>
+            <div style={styles.header}>
+              <h2 style={styles.sectionTitle}>Activities Management</h2>
+              <button style={styles.createBtn} onClick={() => setShowCreateActivity(!showCreateActivity)}>
+                {showCreateActivity ? "Cancel" : "+ Create Activity"}
+              </button>
+            </div>
+
+            {showCreateActivity && (
+              <div style={styles.formCard}>
+                <h3 style={styles.formTitle}>Create New Activity</h3>
+                <div style={styles.formGrid}>
+                  <input
+                    type="text"
+                    placeholder="Activity Name"
+                    value={newActivity.name}
+                    onChange={(e) => setNewActivity({ ...newActivity, name: e.target.value })}
+                    style={styles.input}
+                  />
+                  <select
+                    value={newActivity.category}
+                    onChange={(e) => setNewActivity({ ...newActivity, category: e.target.value })}
+                    style={styles.input}
+                  >
+                    <option value="academic">Academic</option>
+                    <option value="sports">Sports</option>
+                    <option value="cultural">Cultural</option>
+                    <option value="social">Social</option>
+                    <option value="volunteer">Volunteer</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <input
+                    type="number"
+                    placeholder="Max Capacity"
+                    value={newActivity.maxCapacity}
+                    onChange={(e) => setNewActivity({ ...newActivity, maxCapacity: parseInt(e.target.value) })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Points Per Attendance"
+                    value={newActivity.pointsPerAttendance}
+                    onChange={(e) =>
+                      setNewActivity({ ...newActivity, pointsPerAttendance: parseInt(e.target.value) })
+                    }
+                    style={styles.input}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Schedule (e.g., Mon & Wed 3-5pm)"
+                    value={newActivity.schedule}
+                    onChange={(e) => setNewActivity({ ...newActivity, schedule: e.target.value })}
+                    style={{ ...styles.input, gridColumn: "1 / -1" }}
+                  />
+                  <textarea
+                    placeholder="Description"
+                    value={newActivity.description}
+                    onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
+                    style={{ ...styles.textarea, gridColumn: "1 / -1" }}
+                    rows={3}
+                  />
+                </div>
+                <button style={styles.submitBtn} onClick={createActivity}>
+                  Create Activity
+                </button>
+              </div>
+            )}
+
+            <div style={styles.activitiesGrid}>
+              {activities.length === 0 ? (
+                <p style={styles.emptyState}>No activities created yet</p>
+              ) : (
+                activities.map((activity) => (
+                  <div key={activity._id} style={styles.activityCard}>
+                    <div style={styles.activityHeader}>
+                      <h3 style={styles.activityTitle}>{activity.name}</h3>
+                      <span style={styles.badge}>{activity.category}</span>
+                    </div>
+                    <p style={styles.activityDesc}>{activity.description}</p>
+                    <div style={styles.activityStats}>
+                      <div>
+                        <span style={styles.statLabel}>Enrolled:</span>
+                        <span style={styles.statValue}>
+                          {activity.currentEnrollment}/{activity.maxCapacity}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={styles.statLabel}>Points:</span>
+                        <span style={styles.statValue}>+{activity.pointsPerAttendance}</span>
+                      </div>
+                    </div>
+                    <div style={styles.activityActions}>
+                      <button 
+                        style={styles.viewBtn} 
+                        onClick={() => {
+                          setSelectedActivity(activity)
+                          setShowStudents(true)
+                        }}
+                      >
+                        View Students ({activity.enrolledStudents?.filter(s => s && s._id).length || 0})
+                      </button>
+                      <button style={styles.deleteBtn} onClick={() => deleteActivity(activity._id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {showStudents && selectedActivity && (
+              <div style={styles.modal} onClick={() => setShowStudents(false)}>
+                <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Enrolled Students - {selectedActivity.name}</h3>
+                    <button style={styles.closeBtn} onClick={() => setShowStudents(false)}>
+                      ✕
+                    </button>
+                  </div>
+                  <div style={styles.enrollmentInfo}>
+                    <p><strong>Total Enrolled:</strong> {selectedActivity.currentEnrollment || 0} / {selectedActivity.maxCapacity}</p>
+                    <p><strong>Valid Student Records:</strong> {selectedActivity.enrolledStudents?.filter(s => s && s._id).length || 0}</p>
+                  </div>
+                  <div style={styles.studentsList}>
+                    {!selectedActivity.enrolledStudents || selectedActivity.enrolledStudents.filter(s => s && s._id).length === 0 ? (
+                      <p style={styles.emptyState}>No valid student records found</p>
+                    ) : (
+                      selectedActivity.enrolledStudents
+                        .filter(student => student && student._id)
+                        .map((student, index) => (
+                          <div key={student._id || index} style={styles.studentCard}>
+                            <div>
+                              <p style={styles.studentName}>{student.name || "Student"}</p>
+                              <p style={styles.studentEmail}>{student.email || "No email"}</p>
+                            </div>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "events" && (
+          <div>
+            <div style={styles.header}>
+              <h2 style={styles.sectionTitle}>Events Management</h2>
+              <button style={styles.createBtn} onClick={() => setShowCreateEvent(!showCreateEvent)}>
+                {showCreateEvent ? "Cancel" : "+ Create Event"}
+              </button>
+            </div>
+
+            {showCreateEvent && (
+              <div style={styles.formCard}>
+                <h3 style={styles.formTitle}>Create New Event</h3>
+                <div style={styles.formGrid}>
+                  <select
+                    value={newEvent.activityId}
+                    onChange={(e) => setNewEvent({ ...newEvent, activityId: e.target.value })}
+                    style={{ ...styles.input, gridColumn: "1 / -1" }}
+                  >
+                    <option value="">Select Activity</option>
+                    {activities.map((activity) => (
+                      <option key={activity._id} value={activity._id}>
+                        {activity.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Event Title"
+                    value={newEvent.title}
+                    onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Location"
+                    value={newEvent.location}
+                    onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="date"
+                    value={newEvent.date}
+                    onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="time"
+                    value={newEvent.time}
+                    onChange={(e) => setNewEvent({ ...newEvent, time: e.target.value })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Capacity"
+                    value={newEvent.capacity}
+                    onChange={(e) => setNewEvent({ ...newEvent, capacity: parseInt(e.target.value) })}
+                    style={styles.input}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Points Per Event"
+                    value={newEvent.pointsPerEvent}
+                    onChange={(e) => setNewEvent({ ...newEvent, pointsPerEvent: parseInt(e.target.value) })}
+                    style={styles.input}
+                  />
+                  <textarea
+                    placeholder="Description"
+                    value={newEvent.description}
+                    onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+                    style={{ ...styles.textarea, gridColumn: "1 / -1" }}
+                    rows={3}
+                  />
+                </div>
+                <button style={styles.submitBtn} onClick={createEvent}>
+                  Create Event
+                </button>
+              </div>
+            )}
+
+            <div style={styles.activitiesGrid}>
+              {events.length === 0 ? (
+                <p style={styles.emptyState}>No events created yet</p>
+              ) : (
+                events.map((event) => (
+                  <div key={event._id} style={styles.activityCard}>
+                    <div style={styles.activityHeader}>
+                      <h3 style={styles.activityTitle}>{event.title}</h3>
+                      <span style={styles.badge}>{event.activityId?.name || "Event"}</span>
+                    </div>
+                    <p style={styles.activityDesc}>{event.description}</p>
+                    <div style={styles.activityStats}>
+                      <div>
+                        <span style={styles.statLabel}>Date:</span>
+                        <span style={styles.statValue}> {new Date(event.date).toLocaleDateString()}</span>
+                      </div>
+                      <div>
+                        <span style={styles.statLabel}>Time:</span>
+                        <span style={styles.statValue}> {event.time}</span>
+                      </div>
+                      <div>
+                        <span style={styles.statLabel}>Attendees:</span>
+                        <span style={styles.statValue}> {event.attendeesCount || 0}/{event.capacity}</span>
+                      </div>
+                    </div>
+                    <div style={styles.activityActions}>
+                      <button 
+                        style={styles.viewBtn} 
+                        onClick={() => {
+                          setSelectedEvent(event)
+                          setShowAttendees(true)
+                        }}
+                      >
+                        View Attendees ({event.attendees?.length || 0})
+                      </button>
+                      <button style={styles.deleteBtn} onClick={() => deleteEvent(event._id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {showAttendees && selectedEvent && (
+              <div style={styles.modal} onClick={() => setShowAttendees(false)}>
+                <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Event Attendees - {selectedEvent.title}</h3>
+                    <button style={styles.closeBtn} onClick={() => setShowAttendees(false)}>
+                      ✕
+                    </button>
+                  </div>
+                  <div style={styles.eventInfo}>
+                    <p><strong>Date:</strong> {new Date(selectedEvent.date).toLocaleDateString()}</p>
+                    <p><strong>Time:</strong> {selectedEvent.time}</p>
+                    <p><strong>Location:</strong> {selectedEvent.location}</p>
+                  </div>
+                  <div style={styles.studentsList}>
+                    {selectedEvent.attendees?.length === 0 ? (
+                      <p style={styles.emptyState}>No attendees registered yet</p>
+                    ) : (
+                      selectedEvent.attendees?.map((attendee, index) => (
+                        <div key={attendee._id || index} style={styles.studentCard}>
+                          <div>
+                            <p style={styles.studentName}>{attendee.name || "Attendee"}</p>
+                            <p style={styles.studentEmail}>{attendee.email || "No email"}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === "users" && (
+          <div>
+            <div style={styles.header}>
+              <h2 style={styles.sectionTitle}>User Management</h2>
+              <select
+                value={userFilter}
+                onChange={(e) => setUserFilter(e.target.value)}
+                style={styles.filterSelect}
+              >
+                <option value="all">All Users</option>
+                <option value="student">Students Only</option>
+                <option value="admin">Admins Only</option>
+              </select>
+            </div>
+            
+            <div style={styles.statsRow}>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>{users.filter(u => u.role === 'student').length}</h3>
+                <p style={styles.statLabel}>Students</p>
+              </div>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>{users.filter(u => u.role === 'admin').length}</h3>
+                <p style={styles.statLabel}>Admins</p>
+              </div>
+              <div style={styles.statCard}>
+                <h3 style={styles.statNumber}>{users.length}</h3>
+                <p style={styles.statLabel}>Total Users</p>
+              </div>
+            </div>
+
+            <div style={styles.usersTable}>
+              <div style={{
+                ...styles.tableHeader,
+                gridTemplateColumns: userFilter === "admin" ? "2fr 2fr 1fr" : "2fr 2fr 1fr 1fr 1.5fr"
+              }}>
+                <div style={styles.tableHeaderCell}>Name</div>
+                <div style={styles.tableHeaderCell}>Email</div>
+                <div style={styles.tableHeaderCell}>Role</div>
+                {userFilter !== "admin" && <div style={styles.tableHeaderCell}>Points</div>}
+                {userFilter !== "admin" && <div style={styles.tableHeaderCell}>Enrolled Activities</div>}
+              </div>
+              {users.filter(user => userFilter === "all" || user.role === userFilter).length === 0 ? (
+                <p style={styles.emptyState}>No users found</p>
+              ) : (
+                users
+                  .filter(user => userFilter === "all" || user.role === userFilter)
+                  .map((user) => (
+                  <div key={user._id} style={{
+                    ...styles.tableRow,
+                    gridTemplateColumns: userFilter === "admin" ? "2fr 2fr 1fr" : "2fr 2fr 1fr 1fr 1.5fr"
+                  }}>
+                    <div style={styles.tableCell}>
+                      <p style={styles.userName}>{user.name || 'N/A'}</p>
+                    </div>
+                    <div style={styles.tableCell}>
+                      <p style={styles.userEmail}>{user.email || 'N/A'}</p>
+                    </div>
+                    <div style={styles.tableCell}>
+                      <span style={user.role === 'admin' ? styles.adminBadge : styles.studentBadge}>
+                        {user.role || 'student'}
+                      </span>
+                    </div>
+                    {userFilter !== "admin" && (
+                      <div style={styles.tableCell}>
+                        <p style={styles.pointsText}>{user.points || 0} pts</p>
+                      </div>
+                    )}
+                    {userFilter !== "admin" && (
+                      <div style={styles.tableCell}>
+                        <p style={styles.enrollmentText}>
+                          {user.enrolledActivities?.length || 0} activities
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeView === "notifications" && (
+          <div>
+            <div style={styles.header}>
+              <h2 style={styles.sectionTitle}>Send Notifications</h2>
+            </div>
+
+            <div style={styles.formCard}>
+              <h3 style={styles.formTitle}>Create Notification</h3>
+              <div style={styles.formGrid}>
+                <input
+                  type="text"
+                  placeholder="Notification Title"
+                  value={notification.title}
+                  onChange={(e) => setNotification({ ...notification, title: e.target.value })}
+                  style={{ ...styles.input, gridColumn: "1 / -1" }}
+                />
+                <textarea
+                  placeholder="Notification Message"
+                  value={notification.message}
+                  onChange={(e) => setNotification({ ...notification, message: e.target.value })}
+                  style={{ ...styles.textarea, gridColumn: "1 / -1" }}
+                  rows={5}
+                />
+                <select
+                  value={notification.targetRole}
+                  onChange={(e) => setNotification({ ...notification, targetRole: e.target.value })}
+                  style={styles.input}
+                >
+                  <option value="all">All Users</option>
+                  <option value="student">Students Only</option>
+                  <option value="admin">Admins Only</option>
+                </select>
+              </div>
+              <button
+                style={styles.submitBtn}
+                onClick={() => {
+                  if (!notification.title || !notification.message) {
+                    alert("Please fill in all fields")
+                    return
+                  }
+                  alert(`Notification sent to: ${notification.targetRole}\n\nTitle: ${notification.title}\nMessage: ${notification.message}`)
+                  setNotification({ title: "", message: "", targetRole: "all" })
+                }}
+              >
+                Send Notification
+              </button>
+            </div>
+
+            <div style={styles.card}>
+              <h3 style={styles.sectionTitle}>Recent Notifications</h3>
+              <p style={styles.emptyState}>Notification history feature coming soon</p>
+            </div>
+          </div>
+        )}
+
+        {activeView === "attendance" && (
+          <div>
+            <div style={styles.header}>
+              <h2 style={styles.sectionTitle}>Attendance Management</h2>
+            </div>
+
+            <div style={styles.activitiesGrid}>
+              {events.length === 0 ? (
+                <p style={styles.emptyState}>No events available for attendance tracking</p>
+              ) : (
+                events.map((event) => (
+                  <div key={event._id} style={styles.activityCard}>
+                    <div style={styles.activityHeader}>
+                      <h3 style={styles.activityTitle}>{event.title}</h3>
+                      <span style={styles.badge}>{new Date(event.date).toLocaleDateString()}</span>
+                    </div>
+                    <p style={styles.activityDesc}>
+                      <strong>Activity:</strong> {event.activityId?.name || "N/A"}
+                    </p>
+                    <p style={styles.activityDesc}>
+                      <strong>Location:</strong> {event.location}
+                    </p>
+                    <div style={styles.activityStats}>
+                      <div>
+                        <span style={styles.statLabel}>Registered:</span>
+                        <span style={styles.statValue}>
+                          {" "}
+                          {
+                            // Count unique students from both event attendees and activity enrollments
+                            [
+                              ...(event.attendees || []),
+                              ...(event.activityEnrolledStudents || []),
+                            ]
+                              .filter((s, i, arr) => s && s._id && arr.findIndex(st => st && st._id === s._id) === i)
+                              .length
+                          }
+                        </span>
+                      </div>
+                      <div>
+                        <span style={styles.statLabel}>Attended:</span>
+                        <span style={styles.statValue}> {event.attendance?.length || 0}</span>
+                      </div>
+                    </div>
+                    <div style={styles.activityActions}>
+                      <button
+                        style={styles.viewBtn}
+                        onClick={() => {
+                          setSelectedEventForAttendance(event)
+                          setShowAttendanceModal(true)
+                        }}
+                      >
+                        Mark Attendance
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {showAttendanceModal && selectedEventForAttendance && (
+              <div style={styles.modal} onClick={() => setShowAttendanceModal(false)}>
+                <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Mark Attendance - {selectedEventForAttendance.title}</h3>
+                    <button style={styles.closeBtn} onClick={() => setShowAttendanceModal(false)}>
+                      ✕
+                    </button>
+                  </div>
+                  <div style={styles.eventInfo}>
+                    <p><strong>Date:</strong> {new Date(selectedEventForAttendance.date).toLocaleDateString()}</p>
+                    <p><strong>Time:</strong> {selectedEventForAttendance.time}</p>
+                    <p><strong>Points:</strong> {selectedEventForAttendance.pointsPerEvent || 10} pts</p>
+                  </div>
+                  <div style={styles.studentsList}>
+                    {(!selectedEventForAttendance.attendees || selectedEventForAttendance.attendees.length === 0) &&
+                    (!selectedEventForAttendance.activityEnrolledStudents || selectedEventForAttendance.activityEnrolledStudents.length === 0) ? (
+                      <p style={styles.emptyState}>No registered attendees or enrolled students</p>
+                    ) : (
+                      // Show both event attendees AND activity-enrolled students
+                      [
+                        ...(selectedEventForAttendance.attendees || []),
+                        ...(selectedEventForAttendance.activityEnrolledStudents || []),
+                      ]
+                        // Remove duplicates based on _id
+                        .filter((student, index, self) => 
+                          student && student._id && self.findIndex(s => s && s._id === student._id) === index
+                        )
+                        .map((attendee) => {
+                          const hasAttended = selectedEventForAttendance.attendance?.some(
+                            a => a.studentId?._id === attendee._id || a.studentId === attendee._id
+                          )
+                          return (
+                            <div key={attendee._id} style={styles.attendanceCard}>
+                              <div>
+                                <p style={styles.studentName}>{attendee.name}</p>
+                                <p style={styles.studentEmail}>{attendee.email}</p>
+                              </div>
+                              <button
+                                style={hasAttended ? styles.presentBtn : styles.markPresentBtn}
+                                onClick={async () => {
+                                  if (hasAttended) {
+                                    alert("Attendance already marked")
+                                    return
+                                  }
+                                  try {
+                                    const token = localStorage.getItem("token")
+                                    const response = await fetch(
+                                      `${API_BASE_URL}/api/events/${selectedEventForAttendance._id}/attendance`,
+                                      {
+                                        method: "POST",
+                                        headers: {
+                                          Authorization: `Bearer ${token}`,
+                                          "Content-Type": "application/json",
+                                        },
+                                        body: JSON.stringify({
+                                          studentId: attendee._id,
+                                          status: "present",
+                                        }),
+                                      }
+                                    )
+                                    if (response.ok) {
+                                      alert(`Attendance marked successfully! ${selectedEventForAttendance.pointsPerEvent || 10} points awarded to ${attendee.name}`)
+                                      setShowAttendanceModal(false)
+                                      const token = localStorage.getItem("token")
+                                      fetchData(token) // Refresh all data including users
+                                    } else {
+                                      const data = await response.json()
+                                      alert(data.message || "Failed to mark attendance")
+                                    }
+                                  } catch (error) {
+                                    alert("Error marking attendance")
+                                  }
+                                }}
+                                disabled={hasAttended}
+                              >
+                                {hasAttended ? "✓ Present" : "Mark Present"}
+                              </button>
+                            </div>
+                          )
+                        })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const styles = {
+  container: {
+    minHeight: "100vh",
+    backgroundColor: "#f5f5f5",
+  },
+  nav: {
+    backgroundColor: "#4f46e5",
+    color: "white",
+    padding: "20px 40px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  navTitle: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    margin: 0,
+  },
+  logoutBtn: {
+    padding: "10px 20px",
+    backgroundColor: "white",
+    color: "#4f46e5",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  content: {
+    padding: "40px",
+    maxWidth: "1200px",
+    margin: "0 auto",
+  },
+  card: {
+    backgroundColor: "white",
+    padding: "30px",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    marginBottom: "30px",
+  },
+  welcomeTitle: {
+    fontSize: "28px",
+    fontWeight: "bold",
+    marginBottom: "16px",
+    color: "#333",
+  },
+  userInfo: {
+    fontSize: "16px",
+    color: "#666",
+    marginBottom: "8px",
+  },
+  statusBadge: {
+    fontSize: "16px",
+    fontWeight: "600",
+    marginTop: "12px",
+  },
+  tabs: {
+    display: "flex",
+    gap: "10px",
+    marginBottom: "24px",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  tab: {
+    padding: "12px 24px",
+    backgroundColor: "transparent",
+    border: "none",
+    borderBottom: "3px solid transparent",
+    fontSize: "16px",
+    fontWeight: "500",
+    color: "#666",
+    cursor: "pointer",
+  },
+  tabActive: {
+    padding: "12px 24px",
+    backgroundColor: "transparent",
+    border: "none",
+    borderBottom: "3px solid #4f46e5",
+    fontSize: "16px",
+    fontWeight: "600",
+    color: "#4f46e5",
+    cursor: "pointer",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+    gap: "20px",
+  },
+  statCard: {
+    backgroundColor: "white",
+    padding: "30px",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    textAlign: "center",
+  },
+  featureCard: {
+    backgroundColor: "white",
+    padding: "30px",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    transition: "transform 0.2s, box-shadow 0.2s",
+    cursor: "pointer",
+  },
+  featureTitle: {
+    fontSize: "20px",
+    fontWeight: "bold",
+    marginBottom: "12px",
+    color: "#333",
+  },
+  featureDesc: {
+    fontSize: "14px",
+    color: "#666",
+    lineHeight: "1.5",
+  },
+  statNumber: {
+    fontSize: "48px",
+    fontWeight: "bold",
+    color: "#4f46e5",
+    margin: 0,
+  },
+  statLabel: {
+    fontSize: "14px",
+    color: "#666",
+    marginTop: "8px",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "24px",
+  },
+  filterSelect: {
+    padding: "10px 16px",
+    border: "2px solid #e5e7eb",
+    borderRadius: "6px",
+    fontSize: "15px",
+    fontWeight: "500",
+    color: "#374151",
+    backgroundColor: "white",
+    cursor: "pointer",
+    outline: "none",
+  },
+  sectionTitle: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    color: "#333",
+    margin: 0,
+  },
+  createBtn: {
+    padding: "12px 24px",
+    backgroundColor: "#4f46e5",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "16px",
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  formCard: {
+    backgroundColor: "white",
+    padding: "30px",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    marginBottom: "30px",
+  },
+  formTitle: {
+    fontSize: "20px",
+    fontWeight: "bold",
+    marginBottom: "20px",
+    color: "#333",
+  },
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "16px",
+    marginBottom: "20px",
+  },
+  input: {
+    padding: "12px",
+    border: "1px solid #ddd",
+    borderRadius: "6px",
+    fontSize: "16px",
+    outline: "none",
+  },
+  textarea: {
+    padding: "12px",
+    border: "1px solid #ddd",
+    borderRadius: "6px",
+    fontSize: "16px",
+    outline: "none",
+    fontFamily: "inherit",
+    resize: "vertical",
+  },
+  submitBtn: {
+    padding: "12px 24px",
+    backgroundColor: "#16a34a",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "16px",
+    fontWeight: "600",
+    cursor: "pointer",
+    width: "100%",
+  },
+  activitiesGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+    gap: "20px",
+  },
+  activityCard: {
+    backgroundColor: "white",
+    padding: "24px",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  activityHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: "12px",
+  },
+  activityTitle: {
+    fontSize: "20px",
+    fontWeight: "bold",
+    color: "#333",
+    margin: 0,
+    flex: 1,
+  },
+  activityDesc: {
+    fontSize: "14px",
+    color: "#666",
+    marginBottom: "16px",
+    lineHeight: "1.5",
+  },
+  activityStats: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "12px 0",
+    borderTop: "1px solid #e5e7eb",
+    borderBottom: "1px solid #e5e7eb",
+    marginBottom: "16px",
+  },
+  statValue: {
+    fontWeight: "600",
+    color: "#333",
+    marginLeft: "8px",
+  },
+  badge: {
+    padding: "4px 12px",
+    backgroundColor: "#e0e7ff",
+    color: "#3730a3",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  activityActions: {
+    display: "flex",
+    gap: "8px",
+  },
+  deleteBtn: {
+    padding: "8px 16px",
+    backgroundColor: "#dc2626",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    flex: 1,
+  },
+  viewBtn: {
+    padding: "8px 16px",
+    backgroundColor: "#4f46e5",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    flex: 1,
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "40px",
+    color: "#999",
+    fontSize: "16px",
+    gridColumn: "1 / -1",
+  },
+  loading: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: "100vh",
+    fontSize: "18px",
+    color: "#666",
+  },
+  modal: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: "white",
+    borderRadius: "8px",
+    padding: "24px",
+    maxWidth: "600px",
+    width: "90%",
+    maxHeight: "80vh",
+    overflow: "auto",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "20px",
+    paddingBottom: "16px",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  modalTitle: {
+    fontSize: "20px",
+    fontWeight: "bold",
+    color: "#333",
+    margin: 0,
+  },
+  closeBtn: {
+    backgroundColor: "transparent",
+    border: "none",
+    fontSize: "24px",
+    cursor: "pointer",
+    color: "#666",
+    padding: "4px 8px",
+  },
+  studentsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  studentCard: {
+    padding: "16px",
+    backgroundColor: "#f9fafb",
+    borderRadius: "6px",
+    border: "1px solid #e5e7eb",
+  },
+  studentName: {
+    fontSize: "16px",
+    fontWeight: "600",
+    color: "#333",
+    margin: "0 0 4px 0",
+  },
+  studentEmail: {
+    fontSize: "14px",
+    color: "#666",
+    margin: 0,
+  },
+  eventInfo: {
+    padding: "16px",
+    backgroundColor: "#f0f9ff",
+    borderRadius: "6px",
+    marginBottom: "16px",
+  },
+  enrollmentInfo: {
+    padding: "16px",
+    backgroundColor: "#fef3c7",
+    borderRadius: "6px",
+    marginBottom: "16px",
+  },
+  statsRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: "20px",
+    marginBottom: "30px",
+  },
+  usersTable: {
+    backgroundColor: "white",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    overflow: "hidden",
+  },
+  tableHeader: {
+    display: "grid",
+    gridTemplateColumns: "2fr 2fr 1fr 1fr 1.5fr",
+    backgroundColor: "#f9fafb",
+    padding: "16px",
+    fontWeight: "600",
+    borderBottom: "2px solid #e5e7eb",
+  },
+  tableHeaderCell: {
+    fontSize: "14px",
+    color: "#374151",
+    fontWeight: "600",
+  },
+  tableRow: {
+    display: "grid",
+    gridTemplateColumns: "2fr 2fr 1fr 1fr 1.5fr",
+    padding: "16px",
+    borderBottom: "1px solid #e5e7eb",
+    transition: "background-color 0.2s",
+  },
+  tableCell: {
+    display: "flex",
+    alignItems: "center",
+  },
+  userName: {
+    fontSize: "15px",
+    fontWeight: "600",
+    color: "#111827",
+    margin: 0,
+  },
+  userEmail: {
+    fontSize: "14px",
+    color: "#6b7280",
+    margin: 0,
+  },
+  adminBadge: {
+    padding: "4px 12px",
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600",
+    textTransform: "uppercase",
+  },
+  studentBadge: {
+    padding: "4px 12px",
+    backgroundColor: "#dbeafe",
+    color: "#1e40af",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600",
+    textTransform: "uppercase",
+  },
+  pointsText: {
+    fontSize: "14px",
+    fontWeight: "600",
+    color: "#16a34a",
+    margin: 0,
+  },
+  enrollmentText: {
+    fontSize: "14px",
+    color: "#6b7280",
+    margin: 0,
+  },
+  attendanceCard: {
+    padding: "16px",
+    backgroundColor: "#f9fafb",
+    borderRadius: "6px",
+    border: "1px solid #e5e7eb",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  markPresentBtn: {
+    padding: "8px 16px",
+    backgroundColor: "#16a34a",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  presentBtn: {
+    padding: "8px 16px",
+    backgroundColor: "#d1fae5",
+    color: "#065f46",
+    border: "none",
+    borderRadius: "4px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "not-allowed",
+  },
+  // Settings Styles
+  settingItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "16px",
+    backgroundColor: "#f9fafb",
+    borderRadius: "6px",
+    marginBottom: "12px",
+  },
+  settingLabel: {
+    fontSize: "15px",
+    fontWeight: "500",
+    color: "#374151",
+    margin: 0,
+  },
+  settingValue: {
+    fontSize: "15px",
+    color: "#6b7280",
+    margin: 0,
+  },
+  toggleBtn: {
+    padding: "6px 16px",
+    backgroundColor: "#e5e7eb",
+    color: "#6b7280",
+    border: "none",
+    borderRadius: "20px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.3s",
+  },
+  toggleBtnActive: {
+    padding: "6px 16px",
+    backgroundColor: "#4f46e5",
+    color: "white",
+    border: "none",
+    borderRadius: "20px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.3s",
+  },
+  languageSelect: {
+    padding: "8px 12px",
+    fontSize: "15px",
+    border: "2px solid #e5e7eb",
+    borderRadius: "6px",
+    backgroundColor: "white",
+    color: "#374151",
+    cursor: "pointer",
+    outline: "none",
+    fontWeight: "500",
+  },
+}

@@ -2,6 +2,7 @@ const express = require("express")
 const bcrypt = require("bcryptjs")
 const jwt = require("jsonwebtoken")
 const User = require("../models/User")
+const validator = require('email-validator')
 
 const router = express.Router()
 
@@ -38,22 +39,34 @@ router.get("/captcha", (req, res) => {
 // Validate CAPTCHA
 const validateCaptcha = (captchaId, userAnswer) => {
   if (!captchaId || !userAnswer) {
+    console.log("❌ CAPTCHA validation: Missing captchaId or userAnswer")
     return false
   }
   
   const captcha = captchaStore.get(captchaId)
   if (!captcha) {
+    console.log("❌ CAPTCHA validation: CAPTCHA not found in store. ID:", captchaId)
+    console.log("📋 Current CAPTCHA store size:", captchaStore.size)
     return false
   }
   
   // Check expiration
   if (captcha.expiresAt < Date.now()) {
+    console.log("❌ CAPTCHA validation: CAPTCHA expired")
     captchaStore.delete(captchaId)
     return false
   }
   
   // Validate answer (case-insensitive)
-  const isValid = captcha.answer.toUpperCase() === userAnswer.toString().toUpperCase().trim()
+  const expectedAnswer = captcha.answer.toUpperCase()
+  const providedAnswer = userAnswer.toString().toUpperCase().trim()
+  const isValid = expectedAnswer === providedAnswer
+  
+  if (!isValid) {
+    console.log("❌ CAPTCHA validation: Answer mismatch. Expected:", expectedAnswer, "Got:", providedAnswer)
+  } else {
+    console.log("✅ CAPTCHA validation: Success")
+  }
   
   // Delete used CAPTCHA
   if (isValid) {
@@ -67,6 +80,11 @@ router.post("/register", async (req, res) => {
   try {
     const { name, email, password, role, captchaId, captchaAnswer } = req.body
 
+    // Validate email format
+    if (!validator.validate(email)) {
+      return res.status(400).json({ message: "Please enter a valid email address" })
+    }
+
     // Validate CAPTCHA
     if (!validateCaptcha(captchaId, captchaAnswer)) {
       return res.status(400).json({ message: "CAPTCHA verification failed. Please try again." })
@@ -79,8 +97,13 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Set roleStatus to pending for admin/coordinator requests
-    const roleStatus = role === "admin" || role === "coordinator" ? "pending" : "approved"
+    // Check if this is the first admin - auto-approve them
+    let roleStatus = "approved"
+    if (role === "admin" || role === "coordinator") {
+      const adminCount = await User.countDocuments({ role: { $in: ["admin", "coordinator"] } })
+      // If there are no admins yet, approve the first one, otherwise set to pending
+      roleStatus = adminCount === 0 ? "approved" : "pending"
+    }
 
     const user = new User({
       name,
@@ -104,14 +127,27 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password, captchaId, captchaAnswer } = req.body
 
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" })
+    }
+
+    // Validate email format
+    if (!validator.validate(email)) {
+      return res.status(400).json({ message: "Please enter a valid email address" })
+    }
+
     // Validate CAPTCHA
     if (!validateCaptcha(captchaId, captchaAnswer)) {
+      console.log("❌ CAPTCHA validation failed:", { captchaId, captchaAnswer })
       return res.status(400).json({ message: "CAPTCHA verification failed. Please try again." })
     }
 
-    const user = await User.findOne({ email })
+    // Find user by email (case-insensitive)
+    const user = await User.findOne({ email: email.toLowerCase().trim() })
     if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" })
+      console.log("❌ User not found:", email)
+      return res.status(400).json({ message: "Invalid email or password" })
     }
 
     if (user.roleStatus === "rejected") {
@@ -124,16 +160,20 @@ router.post("/login", async (req, res) => {
         .json({ message: "Your account is pending approval. Please wait for a coordinator to review." })
     }
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password)
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" })
+      console.log("❌ Password mismatch for user:", email)
+      return res.status(400).json({ message: "Invalid email or password" })
     }
 
+    console.log("✅ Login successful for user:", email)
     const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" })
 
     res.json({ token, user: { id: user._id, name: user.name, email, role: user.role, roleStatus: user.roleStatus } })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    console.error("❌ Login error:", error)
+    res.status(500).json({ message: error.message || "Internal server error" })
   }
 })
 

@@ -1,76 +1,183 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
+import Captcha from "@/components/Captcha"
+import { API_BASE_URL } from "@/app/config"
 
 export default function LoginPage() {
+  const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [name, setName] = useState("")
+  const [role, setRole] = useState("student")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+  const [isLogin, setIsLogin] = useState(true)
+  const [captchaVerified, setCaptchaVerified] = useState(false)
+  const [captchaId, setCaptchaId] = useState(null)
+  const [captchaAnswer, setCaptchaAnswer] = useState(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
+    setSuccess("")
+
+    // Validate CAPTCHA
+    if (!captchaVerified) {
+      setError("Please complete the CAPTCHA verification")
+      return
+    }
+
     setIsLoading(true)
-    
+
     try {
-      const response = await fetch("/api/auth/login", {
+      const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register"
+      const payload = isLogin
+        ? { email: email.trim().toLowerCase(), password, captchaId, captchaAnswer }
+        : { name, email: email.trim().toLowerCase(), password, role, captchaId, captchaAnswer }
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email: email.trim(), password }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
-      
-      const data = await response.json()
-      
+
+      const data = await response.json().catch(() => ({ message: "Failed to process response" }))
+
       if (!response.ok) {
-        setError(data.message || "Login failed")
+        setError(data.message || "Failed")
         setIsLoading(false)
+        setCaptchaReset(prev => prev + 1) // Reset CAPTCHA on error
         return
       }
-      
-      console.log("Login successful:", data)
-    } catch (error) {
-      console.error("Login error:", error)
+
+      console.log("Success:", data)
+
+      // Store authentication data
+      if (data.token) {
+        localStorage.setItem("token", data.token)
+        localStorage.setItem("user", JSON.stringify(data.user))
+      }
+
+      setError("")
+      setIsLoading(false)
+
+      if (isLogin) {
+        // Redirect to appropriate dashboard based on role
+        const redirectPath = data.user.role === "admin" ? "/dashboard/admin" : "/dashboard/student"
+        router.push(redirectPath)
+      } else {
+        // Show success message for registration
+        setSuccess(`Registration successful! Welcome ${data.user.name}. You can now log in.`)
+        setTimeout(() => {
+          toggleMode() // Switch back to login mode after 2 seconds
+          setSuccess("")
+        }, 2000)
+      }
+    } catch (err) {
+      console.error("Error:", err)
       setError("Network error. Please try again.")
+      setCaptchaReset(prev => prev + 1) // Reset CAPTCHA on network error
     } finally {
       setIsLoading(false)
     }
   }
 
+  const toggleMode = () => {
+    setIsLogin(!isLogin)
+    setError("")
+    setSuccess("")
+    setEmail("")
+    setPassword("")
+    setName("")
+    setCaptchaVerified(false)
+    setCaptchaId(null)
+    setCaptchaAnswer(null)
+    setCaptchaReset(prev => prev + 1)
+  }
+
+  const handleCaptchaVerify = (verified, id, answer) => {
+    setCaptchaVerified(verified)
+    setCaptchaId(id)
+    setCaptchaAnswer(answer)
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Login</h1>
+        <h1 style={styles.title}>{isLogin ? "Login" : "Sign Up"}</h1>
 
         {error && <div style={styles.error}>{error}</div>}
+        {success && <div style={styles.success}>{success}</div>}
 
-          <form onSubmit={handleSubmit} style={styles.form}>
-                <input
+        <form onSubmit={handleSubmit} style={styles.form}>
+          {!isLogin && (
+            <input
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={styles.input}
+              disabled={isLoading}
+              required
+            />
+          )}
+
+          <input
             type="email"
-                  placeholder="Email"
-                  value={email}
+            placeholder="Email"
+            value={email}
             onChange={(e) => setEmail(e.target.value)}
             style={styles.input}
-                  disabled={isLoading}
+            disabled={isLoading}
             required
           />
 
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
             onChange={(e) => setPassword(e.target.value)}
             style={styles.input}
-                  disabled={isLoading}
+            disabled={isLoading}
             required
           />
 
-          <button type="submit" style={styles.button} disabled={isLoading}>
-            {isLoading ? "Logging in..." : "Login"}
-              </button>
-          </form>
+          {!isLogin && (
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              style={styles.input}
+              disabled={isLoading}
+            >
+              <option value="student">Student</option>
+              <option value="admin">Admin</option>
+            </select>
+          )}
+
+          <Captcha
+            onVerify={handleCaptchaVerify}
+            resetTrigger={captchaReset}
+          />
+
+          <button
+            type="submit"
+            style={styles.button}
+            disabled={isLoading || !captchaVerified}
+          >
+            {isLoading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
+          </button>
+        </form>
+
+        <p style={styles.toggle}>
+          {isLogin ? "Don't have an account? " : "Already have an account? "}
+          <button type="button" onClick={toggleMode} style={styles.link}>
+            {isLogin ? "Sign Up" : "Login"}
+          </button>
+        </p>
       </div>
     </div>
   )
@@ -128,5 +235,28 @@ const styles = {
     borderRadius: "4px",
     marginBottom: "16px",
     fontSize: "14px",
+  },
+  success: {
+    padding: "12px",
+    backgroundColor: "#e8f5e9",
+    color: "#2e7d32",
+    borderRadius: "4px",
+    marginBottom: "16px",
+    fontSize: "14px",
+  },
+  toggle: {
+    textAlign: "center",
+    marginTop: "20px",
+    fontSize: "14px",
+    color: "#666",
+  },
+  link: {
+    background: "none",
+    border: "none",
+    color: "#6b7280",
+    cursor: "pointer",
+    fontSize: "14px",
+    textDecoration: "underline",
+    padding: 0,
   },
 }
